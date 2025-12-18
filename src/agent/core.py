@@ -19,6 +19,26 @@ from config import config
 client = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_base_url)
 
 
+def _convert_tool_calls_to_message(
+    tool_calls: list[ChatCompletionMessageToolCallUnion],
+) -> ChatCompletionAssistantMessageParam:
+    """Utility function for type checking."""
+    return ChatCompletionAssistantMessageParam(
+        role="assistant",
+        tool_calls=[
+            ChatCompletionMessageFunctionToolCallParam(
+                id=tool_call.id,
+                function=Function(
+                    name=tool_call.function.name, arguments=tool_call.function.arguments
+                ),
+                type="function",
+            )
+            for tool_call in tool_calls
+            if tool_call.type == "function"
+        ],
+    )
+
+
 async def _make_generation_step(
     messages: list[ChatCompletionMessageParam],
     tool_by_name: dict[str, Tool],
@@ -33,31 +53,12 @@ async def _make_generation_step(
     )
 
 
-def _convert_tool_calls_to_message(
-    tool_calls: list[ChatCompletionMessageToolCallUnion],
-) -> ChatCompletionAssistantMessageParam:
-    """Utility function for type checking."""
-    return ChatCompletionAssistantMessageParam(
-        role="assistant",
-        tool_calls=[
-            ChatCompletionMessageFunctionToolCallParam(
-                id=tool_call.id,
-                function=Function(
-                    name=tool_call.function.name,
-                    arguments=tool_call.function.arguments,
-                ),
-                type="function",
-            )
-            for tool_call in tool_calls
-            if tool_call.type == "function"
-        ],
-    )
-
-
 def default_final_response(reasoning: str | None, answer: str):
     """Call this function to return a final response from the agent."""
+
+    # allows to post-process the response before returning it
     return {
-        "reasoning": reasoning,
+        "reasoning": reasoning or "I don't know",
         "answer": answer,
     }
 
@@ -83,12 +84,8 @@ class Agent:
         self.usage_store = usage_store
 
     async def run(self, prompt: str) -> dict:
-        await self.session.add_message(
-            {
-                "role": "system",
-                "content": "you are a helpful assistant that can use tools to answer questions",
-            }
-        )
+        system_prompt = "you can use tools to answer questions"
+        await self.session.add_message({"role": "system", "content": system_prompt})
         await self.session.add_message({"role": "user", "content": prompt})
 
         # NOTE: we can use local messages variable that mirrors the session state to avoid multiple calls to get_messages
