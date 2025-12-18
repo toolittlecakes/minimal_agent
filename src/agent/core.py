@@ -2,8 +2,10 @@ import json
 
 from openai import AsyncOpenAI
 from openai.types.chat import (
+    ChatCompletion,
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageFunctionToolCallParam,
+    ChatCompletionMessageToolCallUnion,
     ChatCompletionToolMessageParam,
     ParsedChatCompletion,
     ParsedFunctionToolCall,
@@ -13,23 +15,21 @@ from openai.types.chat.chat_completion_message_tool_call_param import Function
 from pydantic import BaseModel
 
 from agent.session import Session
-from agent.tool import Tool
+from agent.tool import Tool, tool
 from agent.usage_store import UsageStore
 from config import config
 
 client = AsyncOpenAI(api_key=config.openai_api_key, base_url=config.openai_base_url)
 
 
-class AgentResponse(BaseModel):
-    reasoning: str
-    answer: str
-
-
 async def _process_tool_calls(
-    tool_calls: list[ParsedFunctionToolCall], tool_by_name: dict[str, Tool]
+    tool_calls: list[ChatCompletionMessageToolCallUnion], tool_by_name: dict[str, Tool]
 ) -> list[ChatCompletionToolMessageParam]:
     tool_messages = []
     for tool_call in tool_calls:
+        if tool_call.type != "function":
+            continue
+
         tool = tool_by_name[tool_call.function.name]
         arguments = json.loads(tool_call.function.arguments)
 
@@ -49,19 +49,18 @@ async def _make_generation_step(
     messages: list[ChatCompletionMessageParam],
     tool_by_name: dict[str, Tool],
     model: str = config.agent_model,
-) -> ParsedChatCompletion[AgentResponse]:
+) -> ChatCompletion:
     tools_schemas = [tool.schema for tool in tool_by_name.values()]
-    return await client.beta.chat.completions.parse(
+    return await client.chat.completions.create(
         model=model,
         tools=tools_schemas,
-        tool_choice="auto",
+        tool_choice="required",
         messages=messages,
-        response_format=AgentResponse,
     )
 
 
 def _convert_tool_calls_to_message(
-    tool_calls: list[ParsedFunctionToolCall],
+    tool_calls: list[ChatCompletionMessageToolCallUnion],
 ) -> ChatCompletionAssistantMessageParam:
     """Utility function for type checking."""
     return ChatCompletionAssistantMessageParam(
@@ -76,12 +75,31 @@ def _convert_tool_calls_to_message(
                 type="function",
             )
             for tool_call in tool_calls
+            if tool_call.type == "function"
         ],
     )
 
 
+class FinalResponse(Exception):
+    def __init__(self, data: dict):
+        self.data = data
+
+
+
+def default_final_response(reasoning: str | None, answer: str):
+    """Call this function to return a final response from the agent."""
+
+    raise FinalResponse(
+        {
+            "reasoning": reasoning,
+            "answer": answer,
+        }
+    )
+
+
 class Agent:
-    def __init__(self, tools: list[Tool], session: Session, usage_store: UsageStore):
+    def __init__(self, tools: list[Tool], session: Session, usage_store: UsageStore, final_response: Tool = tool(default_final_response)):
+        tools = [*tools, final_response]
         # check that tools are unique
         self.tool_by_name: dict[str, Tool] = {
             tool.schema["function"]["name"]: tool for tool in tools
@@ -92,7 +110,7 @@ class Agent:
         self.session = session
         self.usage_store = usage_store
 
-    async def run(self, prompt: str) -> AgentResponse:
+    async def run(self, prompt: str) -> dict:
         await self.session.add_message(
             {
                 "role": "system",
@@ -119,21 +137,16 @@ class Agent:
                 )
 
                 # Process tool calls
-                tool_messages = await _process_tool_calls(tool_calls, self.tool_by_name)
+                try:
+                    tool_messages = await _process_tool_calls(
+                        tool_calls, self.tool_by_name
+                    )
+                except FinalResponse as e:
+                    return e.data
 
                 # Add tool call responses to session
                 for tool_message in tool_messages:
                     await self.session.add_message(tool_message)
-                continue
-
-            parsed = response.choices[0].message.parsed
-            if parsed is None:
-                raise ValueError("No response parsed")
-
-            await self.session.add_message(
-                {"role": "assistant", "content": parsed.model_dump_json()}
-            )
-
-            return parsed
+                # continue
 
         raise ValueError(f"No response after {config.agent_max_iterations} iterations")

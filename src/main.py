@@ -1,6 +1,6 @@
 import asyncio
 
-from agent.core import Agent
+from agent.core import Agent, FinalResponse
 from agent.session import ChatCompletionMessageParam, Session
 from agent.tool import tool
 from agent.usage_store import CompletionUsage, UsageStore
@@ -50,7 +50,16 @@ class InMemoryUsageStore(UsageStore):
         ...
 
 
-async def ask(user_query: str) -> str:
+def final_response(reasoning: str | None, answer: str):
+    """Call this function to return a final response from the agent."""
+
+    print("custom execution after the agent has finished thinking")
+    raise FinalResponse({
+        "reasoning": reasoning.capitalize() if reasoning else None,
+        "answer": answer,
+    })
+
+async def ask(user_query: str):
     tools = [
         tool(CompanySpecificData(company_id="123").get_company_data),
         tool(get_weather),
@@ -58,10 +67,10 @@ async def ask(user_query: str) -> str:
     session = InMemorySession(session_id="42")
     usage_store = InMemoryUsageStore()
 
-    agent = Agent(tools=tools, session=session, usage_store=usage_store)
+    agent = Agent(tools=tools, session=session, usage_store=usage_store, final_response=tool(final_response))
 
     response = await agent.run(user_query)
-    return response.reasoning + "\n" + response.answer
+    return response
 
 
 async def main():
