@@ -73,11 +73,13 @@ An in-memory example is included in `src/main.py`.
 ## How it works (high level)
 
 - Sends a `system` + `user` message to the model
-- Calls `client.beta.chat.completions.parse(...)` with `tools=...` and `tool_choice="auto"`
-- If the model requests tool calls, executes them and appends `role="tool"` messages
-- Otherwise, parses the final response into `AgentResponse` (`reasoning` + `answer`)
+- Calls `client.chat.completions.create(...)` with `tools=...` and `tool_choice="required"`
+- The model must always respond with tool calls; direct “assistant text” is not used
+- Executes tool calls and appends `role="tool"` messages back into the session
+- Stops when the model calls the built-in `final_response(reasoning, answer)` tool (customizable)
 
 ## Notes / limitations
 
 - Tool names must be unique (the agent keys tools by function `__name__`).
 - Tool results are currently added to the conversation as `str(result)`; if you need strict JSON, serialize explicitly in your tool implementation.
+- The agent returns a `dict` (by default: `{"reasoning": ..., "answer": ...}`) produced by `final_response`.
