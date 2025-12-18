@@ -45,39 +45,3 @@ class Tool[**P, R]:
 
 def tool[**P, R](func: Callable[P, R]) -> Tool[P, R]:
     return Tool[P, R](func)
-
-
-if __name__ == "__main__":
-    # example of using the tool decorator
-    
-    import asyncio
-
-    @tool
-    def foo(a: int, b: int) -> int:
-        """Adds two integers together"""
-        return a + b
-
-    @tool
-    async def bar(a: int, b: int) -> int:
-        """Multiplies two integers asynchronously"""
-        return a * b
-
-    class Api:
-        def __init__(self, base_url: str):
-            self.base_url = base_url
-
-        async def get_user(self, user_id: int) -> dict:
-            """Gets a user by ID"""
-            return {"id": user_id, "name": "John Doe"}
-
-    async def main():
-        print("Sync tool:", foo.is_async, foo(1, 2))
-        print("Async tool:", bar.is_async, await bar(3, 4))
-        print("Async schema:", bar.schema)
-
-        api = Api("https://api.example.com")
-        get_user = tool(api.get_user)
-        print("Async tool:", get_user.is_async, await get_user(1))
-        print("Async schema:", get_user.schema)
-
-    asyncio.run(main())
