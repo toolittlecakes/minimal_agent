@@ -1,8 +1,10 @@
 import asyncio
 
+from pydantic import BaseModel, Field
+
 from agent.core import Agent
 from agent.session import ChatCompletionMessageParam, Session
-from agent.tool import tool
+from agent.tool import Tool
 from agent.usage_store import CompletionUsage, UsageStore
 
 
@@ -50,29 +52,29 @@ class InMemoryUsageStore(UsageStore):
         ...
 
 
-def final_response(reasoning: str | None, answer: str):
-    """Call this function to return a final response from the agent.
+class AgentResponse(BaseModel):
+    """Call this tool only when you have all the information for a response."""
+    reasoning: str | None = Field(
+        default=None,
+        description="Analysis of the retrieved information in relation to the question asked.",
+    )
+    answer: str
 
-    Args:
-        reasoning: The reasoning about the data that the agent has collected.
-        answer: The answer of the agent.
-    """
-
-    print("custom execution after the agent has finished thinking")
-    return {
-        "reasoning": reasoning.capitalize() if reasoning else None,
-        "answer": answer,
-    }
 
 async def ask(user_query: str):
     tools = [
-        tool(CompanySpecificData(company_id="123").get_company_data),
-        tool(get_weather),
+        Tool(CompanySpecificData(company_id="123").get_company_data),
+        Tool(get_weather),
     ]
     session = InMemorySession(session_id="42")
     usage_store = InMemoryUsageStore()
 
-    agent = Agent(tools=tools, session=session, usage_store=usage_store, final_response=tool(final_response))
+    agent = Agent(
+        tools=tools,
+        session=session,
+        usage_store=usage_store,
+        response_model=AgentResponse,
+    )
 
     response = await agent.run(user_query)
     return response

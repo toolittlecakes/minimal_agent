@@ -8,13 +8,14 @@ from openai.types.chat.chat_completion_function_tool_param import (
 from pydantic import TypeAdapter
 
 
-def function_to_schema(f) -> ChatCompletionFunctionToolParam:
-    schema = TypeAdapter(f).json_schema()
+def function_to_schema[**P, R](f: Callable[P, R]) -> ChatCompletionFunctionToolParam:
+    """Handles both regular functions and Pydantic models."""
+    schema = TypeAdapter(f).json_schema() | {"additionalProperties": False}
     return {
         "type": "function",
         "function": {
             "name": f.__name__,
-            "description": f.__doc__,
+            "description": f.__doc__ or "",
             "parameters": schema,
             "strict": True,
         },
@@ -41,7 +42,3 @@ class Tool[**P, R]:
     @property
     def schema(self) -> ChatCompletionFunctionToolParam:
         return function_to_schema(self._func)
-
-
-def tool[**P, R](func: Callable[P, R]) -> Tool[P, R]:
-    return Tool[P, R](func)

@@ -10,9 +10,10 @@ from openai.types.chat import (
 )
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from openai.types.chat.chat_completion_message_tool_call_param import Function
+from pydantic import BaseModel, Field
 
 from agent.session import Session
-from agent.tool import Tool, tool
+from agent.tool import Tool
 from agent.usage_store import UsageStore
 from config import config
 
@@ -53,26 +54,23 @@ async def _make_generation_step(
     )
 
 
-def default_final_response(reasoning: str | None, answer: str):
+class DefaultResponse(BaseModel):
     """Call this function to return a final response from the agent."""
 
-    # allows to post-process the response before returning it
-    return {
-        "reasoning": reasoning or "I don't know",
-        "answer": answer,
-    }
+    answer: str = Field(description="The final answer to the question.", min_length=1)
 
 
-class Agent:
+class Agent[R: BaseModel = DefaultResponse]:
     def __init__(
         self,
         tools: list[Tool],
         session: Session,
         usage_store: UsageStore,
-        final_response: Tool = tool(default_final_response),
+        response_model: type[R] = DefaultResponse,
     ):
-        self.final_response = final_response
-        tools = [*tools, self.final_response]
+        # self.response_tool = response_model_to_tool(response_model)
+        self.response_tool = Tool(response_model)
+        tools = [*tools, self.response_tool]
         # check that tools are unique
         self.tool_by_name: dict[str, Tool] = {
             tool.schema["function"]["name"]: tool for tool in tools
@@ -83,7 +81,7 @@ class Agent:
         self.session = session
         self.usage_store = usage_store
 
-    async def run(self, prompt: str) -> dict:
+    async def run(self, prompt: str) -> R:
         system_prompt = "you can use tools to answer questions"
         await self.session.add_message({"role": "system", "content": system_prompt})
         await self.session.add_message({"role": "user", "content": prompt})
@@ -113,7 +111,7 @@ class Agent:
                 arguments = json.loads(tool_call.function.arguments)
 
                 result = await tool(**arguments) if tool.is_async else tool(**arguments)
-                if tool == self.final_response:
+                if tool == self.response_tool:
                     return result
 
                 message = ChatCompletionToolMessageParam(
