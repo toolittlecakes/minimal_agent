@@ -54,9 +54,12 @@ class InMemoryUsageStore(UsageStore):
 
 class AgentResponse(BaseModel):
     """Call this tool only when you have all the information for a response."""
-    reasoning: str | None = Field(
-        default=None,
-        description="Analysis of the retrieved information in relation to the question asked.",
+
+    reasoning: list[str] = Field(
+        ...,
+        description="Stating the retrieved facts relevant to the question asked.",
+        min_length=1,
+        max_length=4,
     )
     answer: str
 

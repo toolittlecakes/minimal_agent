@@ -5,12 +5,18 @@ from typing import Callable
 from openai.types.chat.chat_completion_function_tool_param import (
     ChatCompletionFunctionToolParam,
 )
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 
 def function_to_schema[**P, R](f: Callable[P, R]) -> ChatCompletionFunctionToolParam:
     """Handles both regular functions and Pydantic models."""
-    schema = TypeAdapter(f).json_schema() | {"additionalProperties": False}
+    schema = TypeAdapter(f).json_schema()
+
+    if isinstance(f, type) and issubclass(f, BaseModel):
+        fields_to_remove = ("name", "description", "title")
+        schema = {k: v for k, v in schema.items() if k not in fields_to_remove}
+        schema = schema | {"additionalProperties": False}
+
     return {
         "type": "function",
         "function": {

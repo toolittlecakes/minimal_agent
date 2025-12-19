@@ -68,9 +68,10 @@ class Agent[R: BaseModel = DefaultResponse]:
         usage_store: UsageStore,
         response_model: type[R] = DefaultResponse,
     ):
-        # self.response_tool = response_model_to_tool(response_model)
         self.response_tool = Tool(response_model)
         tools = [*tools, self.response_tool]
+        for tool in tools:
+            print(tool.schema)
         # check that tools are unique
         self.tool_by_name: dict[str, Tool] = {
             tool.schema["function"]["name"]: tool for tool in tools
